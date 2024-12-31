@@ -15,9 +15,9 @@ async fn save_aur_list(aur_url: &Url, cache_dir: &Path) -> Result<()> {
     let url = aur_url.join("packages.gz")?;
     let resp = get(url.clone())
         .await
-        .with_context(|| format!("get {}", url))?;
+        .with_context(|| format!("get {url}"))?;
     let success = resp.status().is_success();
-    ensure!(success, "get {}: {}", url, resp.status());
+    ensure!(success, "get {url}: {}", resp.status());
 
     let data = resp.bytes().await?;
 

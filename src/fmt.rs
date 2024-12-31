@@ -71,7 +71,7 @@ pub fn print_indent<S: AsRef<str>>(
             }
 
             if iter.peek().is_some() && pos + sep.len() < cols {
-                print!("{}", sep);
+                print!("{sep}");
                 pos += sep.len();
             }
 
@@ -88,7 +88,7 @@ pub fn print_indent<S: AsRef<str>>(
                 pos += len;
 
                 if iter.peek().is_some() && pos + sep.len() < cols {
-                    print!("{}", sep);
+                    print!("{sep}");
                     pos += sep.len();
                 }
             }
@@ -129,7 +129,7 @@ pub fn print_target(targ: &str, quiet: bool) {
     if quiet {
         println!("{}", targ.split_once('/').unwrap().1);
     } else {
-        println!("{}", targ);
+        println!("{targ}");
     }
 }
 
@@ -154,7 +154,7 @@ fn base_string(config: &Config, base: &Base, devel: &HashSet<String>) -> String 
         let mut pkgs = base.packages();
         write!(&mut s, "{}", pkgs.next().unwrap()).unwrap();
         for pkg in pkgs {
-            write!(&mut s, " {}", pkg).unwrap();
+            write!(&mut s, " {pkg}").unwrap();
         }
         write!(&mut s, ")").unwrap();
     }
@@ -282,13 +282,9 @@ fn repo<'a>(config: &'a Config, pkg: &str) -> &'a str {
         return "aur";
     }
 
-    let db = dbs
-        .iter()
+    dbs.iter()
         .find(|db| db.pkg(pkg).is_ok())
-        .map(|db| db.name())
-        .unwrap_or_else(|| dbs.first().unwrap().name());
-
-    db
+        .map_or_else(|| dbs.first().unwrap().name(), |db| db.name())
 }
 
 fn old_ver<'a>(config: &'a Config, pkg: &str) -> Option<&'a Ver> {
@@ -313,7 +309,7 @@ pub fn print_install_verbose(config: &Config, actions: &Actions, devel: &HashSet
         actions.iter_aur_pkgs().count(),
         actions.iter_pkgbuilds().count(),
     ) {
-        (a, 0) => format!("Aur ({})", a),
+        (a, 0) => format!("Aur ({a})"),
         (a, c) => format!("Pkgbuilds ({})", a + c),
     };
     let old = tr!("Old Version");
@@ -372,21 +368,12 @@ pub fn print_install_verbose(config: &Config, actions: &Actions, devel: &HashSet
     let aur_old_len = actions
         .build
         .iter()
-        .filter_map(|pkg| match pkg {
-            Base::Aur(base) => base
-                .pkgs
-                .iter()
-                .filter_map(|pkg| old_ver(config, &pkg.pkg.name))
-                .map(|v| v.as_str())
-                .max(),
-            Base::Pkgbuild(base) => base
-                .pkgs
-                .iter()
-                .filter_map(|pkg| old_ver(config, &pkg.pkg.pkgname))
-                .map(|v| v.as_str())
-                .max(),
+        .filter_map(|base| {
+            base.packages()
+                .filter_map(|name| old_ver(config, name).map(Ver::as_str))
+                .max()
         })
-        .map(|v| v.len())
+        .map(str::len)
         .chain(Some(old.width()))
         .max()
         .unwrap_or_default();
@@ -471,7 +458,7 @@ pub fn print_install_verbose(config: &Config, actions: &Actions, devel: &HashSet
             new_len = new_len - new.width(),
         );
 
-        for pkg in actions.build.iter() {
+        for pkg in &actions.build {
             match pkg {
                 Base::Aur(base) => {
                     for pkg in &base.pkgs {
@@ -484,7 +471,7 @@ pub fn print_install_verbose(config: &Config, actions: &Actions, devel: &HashSet
                             "{:<package_len$}  {:<old_len$}  {:<new_len$}  {}",
                             format!("{}/{}", repo(config, &pkg.pkg.name), pkg.pkg.name),
                             old_ver(config, &pkg.pkg.name)
-                                .map(|v| v.as_str())
+                                .map(Ver::as_str)
                                 .unwrap_or_default(),
                             ver,
                             if pkg.make { &yes } else { &no }
@@ -503,7 +490,7 @@ pub fn print_install_verbose(config: &Config, actions: &Actions, devel: &HashSet
                             "{:<package_len$}  {:<old_len$}  {:<new_len$}  {}",
                             format!("{}/{}", base.repo, pkg.pkg.pkgname),
                             old_ver(config, &pkg.pkg.pkgname)
-                                .map(|v| v.as_str())
+                                .map(Ver::as_str)
                                 .unwrap_or_default(),
                             ver,
                             if pkg.make { &yes } else { &no }

@@ -84,7 +84,7 @@ fn print_error(color: Style, err: Error) {
 
     if backtrace_enabled {
         let backtrace = err.backtrace();
-        eprint!("{}", backtrace);
+        eprint!("{backtrace}");
     }
 
     let mut iter = err.chain().peekable();
@@ -100,7 +100,7 @@ fn print_error(color: Style, err: Error) {
 
     eprint!("{} ", color.paint(tr!("error:")));
     while let Some(link) = iter.next() {
-        eprint!("{}", link);
+        eprint!("{link}");
         if iter.peek().is_some() {
             eprint!(": ");
         }
@@ -449,7 +449,7 @@ fn handle_chroot(config: &Config) -> Result<i32> {
         if config.no_confirm {
             args.push("--noconfirm");
         }
-        args.extend(config.targets.iter().map(|s| s.as_str()));
+        args.extend(config.targets.iter().map(String::as_str));
         chroot.run(&args)?;
     } else if !config.sysupgrade || !config.targets.is_empty() {
         chroot.run(&config.targets)?;

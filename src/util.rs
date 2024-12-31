@@ -1,11 +1,11 @@
-use crate::config::{Config, LocalRepos};
+use crate::config::Config;
 use crate::repo;
 
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{stdin, stdout, BufRead, Write};
-use std::ops::Range;
+use std::ops::RangeInclusive;
 use std::os::fd::{AsFd, AsRawFd};
 
 use alpm::{Package, PackageReason};
@@ -14,14 +14,6 @@ use anyhow::Result;
 use nix::libc::{STDERR_FILENO, STDIN_FILENO, STDOUT_FILENO};
 use nix::unistd::dup2;
 use tr::tr;
-
-#[derive(Debug)]
-pub struct NumberMenu<'a> {
-    pub in_range: Vec<Range<usize>>,
-    pub ex_range: Vec<Range<usize>>,
-    pub in_word: Vec<&'a str>,
-    pub ex_word: Vec<&'a str>,
-}
 
 pub fn pkg_base_or_name(pkg: &Package) -> &str {
     pkg.base().unwrap_or_else(|| pkg.name())
@@ -85,7 +77,7 @@ pub fn split_repo_aur_targets<'a, T: AsTarg>(
 pub fn split_repo_aur_info<'a, T: AsTarg>(
     config: &Config,
     targets: &'a [T],
-) -> Result<(Vec<Targ<'a>>, Vec<Targ<'a>>)> {
+) -> (Vec<Targ<'a>>, Vec<Targ<'a>>) {
     let mut local = Vec::new();
     let mut aur = Vec::new();
 
@@ -110,7 +102,7 @@ pub fn split_repo_aur_info<'a, T: AsTarg>(
         }
     }
 
-    Ok((local, aur))
+    (local, aur)
 }
 
 pub fn ask(config: &Config, question: &str, default: bool) -> bool {
@@ -153,17 +145,18 @@ pub fn input(config: &Config, question: &str) -> String {
     println!("{} {}", action.paint("::"), bold.paint(question));
     print!("{} ", action.paint("::"));
     let _ = stdout().lock().flush();
+
     if config.no_confirm {
         println!();
-        return "".into();
+        String::new()
+    } else {
+        let mut input = String::new();
+        let _ = stdin().read_line(&mut input);
+        input
     }
-    let stdin = stdin();
-    let mut input = String::new();
-    let _ = stdin.read_line(&mut input);
-    input
 }
 
-#[derive(Hash, PartialEq, Eq, SmartDefault, Copy, Clone)]
+#[derive(Hash, PartialEq, Eq, Default, Copy, Clone)]
 enum State {
     #[default]
     Remove,
@@ -250,6 +243,14 @@ pub fn unneeded_pkgs(config: &Config, keep_make: bool, keep_optional: bool) -> V
     remove
 }
 
+#[derive(Debug)]
+pub struct NumberMenu<'a> {
+    include_range: Vec<RangeInclusive<usize>>,
+    exclude_range: Vec<RangeInclusive<usize>>,
+    include_repo: Vec<&'a str>,
+    exclude_repo: Vec<&'a str>,
+}
+
 impl<'a> NumberMenu<'a> {
     pub fn new(input: &'a str) -> Self {
         let mut include_range = Vec::new();
@@ -261,73 +262,45 @@ impl<'a> NumberMenu<'a> {
             .split(|c: char| c.is_whitespace() || c == ',')
             .filter(|s| !s.is_empty());
 
-        for mut word in words {
-            let mut invert = false;
-            if word.starts_with('^') {
-                word = word.trim_start_matches('^');
-                invert = true;
-            }
-
-            let mut split = word.split('-');
-            let start_str = split.next().unwrap();
-
-            let start = match start_str.parse::<usize>() {
-                Ok(start) => start,
-                Err(_) => {
-                    if invert {
-                        exclude_repo.push(start_str);
-                    } else {
-                        include_repo.push(start_str);
-                    }
-                    continue;
-                }
+        for word in words {
+            let (word, range_vec, repo_vec) = match word.strip_prefix('^') {
+                Some(stripped) => (stripped, &mut exclude_range, &mut exclude_repo),
+                None => (word, &mut include_range, &mut include_repo),
             };
 
-            let end = match split.next() {
-                Some(end) => end,
-                None => {
-                    if invert {
-                        exclude_range.push(start..start + 1);
-                    } else {
-                        include_range.push(start..start + 1);
-                    }
-                    continue;
-                }
-            };
+            match word.split_once('-') {
+                Some((start, end)) => {
+                    let Ok(start) = start.parse() else { continue };
+                    let Ok(end) = end.parse() else { continue };
 
-            match end.parse::<usize>() {
-                Ok(end) => {
-                    if invert {
-                        exclude_range.push(start..end + 1)
-                    } else {
-                        include_range.push(start..end + 1)
-                    }
+                    range_vec.push(start..=end);
                 }
-                _ => {
-                    if invert {
-                        exclude_repo.push(start_str)
-                    } else {
-                        include_repo.push(start_str)
-                    }
-                }
+                None => match word.parse() {
+                    Ok(num) => range_vec.push(num..=num),
+                    Err(_) => repo_vec.push(word),
+                },
             }
         }
 
         NumberMenu {
-            in_range: include_range,
-            ex_range: exclude_range,
-            in_word: include_repo,
-            ex_word: exclude_repo,
+            include_range,
+            exclude_range,
+            include_repo,
+            exclude_repo,
         }
     }
 
-    pub fn contains(&self, n: usize, word: &str) -> bool {
-        if self.in_range.iter().any(|r| r.contains(&n)) || self.in_word.contains(&word) {
+    pub fn contains(&self, n: usize, word: Option<&str>) -> bool {
+        if self.include_range.iter().any(|r| r.contains(&n))
+            || word.is_some_and(|w| self.include_repo.contains(&w))
+        {
             true
-        } else if self.ex_range.iter().any(|r| r.contains(&n)) || self.ex_word.contains(&word) {
+        } else if self.exclude_range.iter().any(|r| r.contains(&n))
+            || word.is_some_and(|w| self.exclude_repo.contains(&w))
+        {
             false
         } else {
-            self.in_range.is_empty() && self.in_word.is_empty()
+            self.include_range.is_empty() && self.include_repo.is_empty()
         }
     }
 }
@@ -383,7 +356,7 @@ pub fn split_repo_aur_pkgs<S: AsRef<str> + Clone>(config: &Config, pkgs: &[S]) -
     for pkg in pkgs {
         if repo_dbs.pkg(pkg.as_ref()).is_ok() {
             repo.push(pkg.clone());
-        } else if config.repos == LocalRepos::None || aur_dbs.pkg(pkg.as_ref()).is_ok() {
+        } else if config.repos.is_none() || aur_dbs.pkg(pkg.as_ref()).is_ok() {
             aur.push(pkg.clone());
         }
     }
@@ -392,7 +365,7 @@ pub fn split_repo_aur_pkgs<S: AsRef<str> + Clone>(config: &Config, pkgs: &[S]) -
 }
 
 pub fn repo_aur_pkgs(config: &Config) -> (Vec<&alpm::Package>, Vec<&alpm::Package>) {
-    if config.repos != LocalRepos::None {
+    if config.repos.is_some() {
         let (repo, aur) = repo::repo_aur_dbs(config);
         let repo = repo.iter().flat_map(|db| db.pkgs()).collect::<Vec<_>>();
         let aur = aur.iter().flat_map(|db| db.pkgs()).collect::<Vec<_>>();

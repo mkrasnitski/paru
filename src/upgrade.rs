@@ -1,4 +1,4 @@
-use crate::config::{Config, LocalRepos};
+use crate::config::Config;
 use crate::devel::{filter_devel_updates, possible_devel_updates};
 use crate::fmt::color_repo;
 use crate::util::{input, NumberMenu};
@@ -51,32 +51,21 @@ pub fn repo_upgrades(config: &Config) -> Result<Vec<&alpm::Package>> {
 }
 
 fn get_version_diff(config: &Config, old: &str, new: &str) -> (String, String) {
-    let mut old_iter = old.chars();
-    let mut new_iter = new.chars();
-    let mut old_split = old_iter.clone();
     let old_col = config.color.old_version;
     let new_col = config.color.new_version;
 
-    while let Some(old_c) = old_iter.next() {
-        let new_c = match new_iter.next() {
-            Some(c) => c,
-            None => break,
-        };
+    let split = old
+        .chars()
+        .zip(new.chars())
+        .take_while(|(old_c, new_c)| old_c == new_c)
+        .count();
 
-        if old_c != new_c {
-            break;
-        }
-
-        if !old_c.is_alphanumeric() {
-            old_split = old_iter.clone();
-        }
-    }
-
-    let common = old.len() - old_split.as_str().len();
+    let (old_prefix, old_suffix) = old.split_at(split);
+    let (new_prefix, new_suffix) = new.split_at(split);
 
     (
-        format!("{}{}", &old[..common], old_col.paint(&old[common..])),
-        format!("{}{}", &new[..common], new_col.paint(&new[common..])),
+        format!("{old_prefix}{}", old_col.paint(old_suffix)),
+        format!("{new_prefix}{}", new_col.paint(new_suffix)),
     )
 }
 
@@ -93,7 +82,7 @@ fn print_upgrade(
     new: &str,
 ) {
     let c = config.color;
-    let n = format!("{:>pad$}", n, pad = n_max);
+    let n = format!("{n:>n_max$}");
     let db_pkg = format!(
         "{}/{}{:pad$}",
         color_repo(config.color.enabled, db),
@@ -101,7 +90,7 @@ fn print_upgrade(
         "",
         pad = db_pkg_max - (db.len() + pkg.len()) + 1
     );
-    let old = format!("{:<pad$}", old, pad = old_max);
+    let old = format!("{old:<old_max$}");
     let (old, new) = get_version_diff(config, &old, new);
     println!(
         "{} {} {} -> {}",
@@ -136,14 +125,10 @@ async fn get_resolver_upgrades<'a, 'b>(
             }
         }
 
-        let dbs = match config.repos {
-            LocalRepos::None => None,
-            _ => {
-                let (_, dbs) = repo::repo_aur_dbs(config);
-                let dbs = Some(dbs.into_iter().map(|db| db.name()).collect::<Vec<_>>());
-                dbs
-            }
-        };
+        let dbs = config.repos.as_ref().map(|_| {
+            let (_, dbs) = repo::repo_aur_dbs(config);
+            dbs.into_iter().map(Db::name).collect::<Vec<_>>()
+        });
         let updates = resolver.updates(dbs.as_deref()).await?;
 
         Ok(updates)
@@ -360,7 +345,7 @@ pub async fn get_upgrades<'a, 'b>(
         let remote = aurdbs
             .pkg(pkg)
             .map(|p| p.db().unwrap().name())
-            .map(|p| format!("{}-devel", p));
+            .map(|p| format!("{p}-devel"));
         let remote = remote.as_deref().unwrap_or("devel");
         let current = aurdbs.pkg(pkg).or_else(|_| db.pkg(pkg)).unwrap();
         let ver = current.version();
@@ -406,7 +391,7 @@ pub async fn get_upgrades<'a, 'b>(
     for pkg in repo_upgrades.iter().rev().rev() {
         let remote = syncdbs.pkg(pkg.name()).unwrap();
         let db = remote.db().unwrap();
-        if !number_menu.contains(index, db.name()) || input.is_empty() {
+        if !number_menu.contains(index, Some(db.name())) || input.is_empty() {
             repo_keep.push(pkg.name().to_string());
         } else {
             repo_skip.push(pkg.name().to_string());
@@ -419,7 +404,7 @@ pub async fn get_upgrades<'a, 'b>(
             .pkg(pkg.local.name())
             .map(|p| p.db().unwrap().name())
             .unwrap_or("aur");
-        if !number_menu.contains(index, remote) || input.is_empty() {
+        if !number_menu.contains(index, Some(remote)) || input.is_empty() {
             aur_keep.push(pkg.local.name().to_string());
         }
         index -= 1;
@@ -430,9 +415,10 @@ pub async fn get_upgrades<'a, 'b>(
         let remote = aurdbs
             .pkg(pkg.pkg.as_str())
             .map(|p| p.db().unwrap().name())
-            .map(|p| format!("{}-devel", p));
+            .map(|p| format!("{p}-devel"));
         let remote = remote.as_deref().unwrap_or("devel");
-        let keep = !number_menu.contains(index, &format!("{}-devel", remote)) || input.is_empty();
+        let keep =
+            !number_menu.contains(index, Some(&format!("{remote}-devel"))) || input.is_empty();
         let is_aur = pkg.repo.as_deref() == Some(config.aur_namespace());
 
         match (keep, is_aur) {
@@ -449,7 +435,7 @@ pub async fn get_upgrades<'a, 'b>(
             .pkg(pkg.local.name())
             .map(|p| p.db().unwrap().name())
             .unwrap_or(&pkg.repo);
-        if !number_menu.contains(index, remote) || input.is_empty() {
+        if !number_menu.contains(index, Some(remote)) || input.is_empty() {
             custom_keep.push((pkg.repo.clone(), pkg.local.name().to_string()));
         }
         index -= 1;
@@ -473,6 +459,5 @@ fn db_len(name: &str, repo_name: &str, aurdbs: AlpmList<&Db>) -> usize {
             .pkg(name)
             .ok()
             .and_then(|pkg| pkg.db())
-            .map(|db| db.name().len() + repo_name.len() + 1)
-            .unwrap_or(repo_name.len())
+            .map_or(repo_name.len(), |db| db.name().len() + repo_name.len() + 1)
 }

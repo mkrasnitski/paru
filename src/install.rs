@@ -13,7 +13,7 @@ use crate::args::{Arg, Args};
 use crate::chroot::Chroot;
 use crate::clean::clean_untracked;
 use crate::completion::update_aur_cache;
-use crate::config::{Config, LocalRepos, Mode, Op, Sign, YesNoAllTree, YesNoAsk};
+use crate::config::{Config, Mode, Op, Sign, YesNoAllTree, YesNoAsk};
 use crate::devel::{fetch_devel_info, load_devel_info, save_devel_info, DevelInfo};
 use crate::download::{self, Bases};
 use crate::fmt::{print_indent, print_install, print_install_verbose};
@@ -87,7 +87,7 @@ pub async fn build_dirs(config: &mut Config, dirs: Vec<PathBuf>) -> Result<()> {
         .pkgs(config)
         .iter()
         .flat_map(|s| s.srcinfo.names())
-        .map(|name| format!("./{}", name))
+        .map(|name| format!("./{name}"))
         .collect::<Vec<_>>();
 
     config.pkgbuild_repos.repos.push(repo);
@@ -137,7 +137,7 @@ impl Installer {
     fn early_pacman(&mut self, config: &mut Config, targets: Vec<String>) -> Result<()> {
         let mut args = config.pacman_args();
         args.targets.clear();
-        args.targets(targets.iter().map(|i| i.as_str()));
+        args.targets(targets.iter().map(String::as_str));
         exec::pacman(config, &args)?.success()?;
         config.args.remove("y").remove("refresh");
         config.args.remove("u").remove("sysupgrade");
@@ -176,7 +176,7 @@ impl Installer {
         Ok(())
     }
 
-    async fn download_pkgbuilds(&mut self, config: &Config, bases: &Bases) -> Result<()> {
+    fn download_pkgbuilds(&mut self, config: &Config, bases: &Bases) -> Result<()> {
         for base in &bases.bases {
             let path = config.build_dir.join(base.package_base()).join(".SRCINFO");
             if path.exists() {
@@ -188,7 +188,7 @@ impl Installer {
             }
         }
 
-        download::new_aur_pkgbuilds(config, bases, &self.srcinfos).await?;
+        download::new_aur_pkgbuilds(config, bases, &self.srcinfos)?;
 
         for base in &bases.bases {
             if self.srcinfos.contains_key(base.package_base()) {
@@ -247,7 +247,7 @@ impl Installer {
                 targets.retain(|&p| config.alpm.localdb().pkg(p).is_ok());
             }
 
-            targets.extend(repo_targs.iter().map(|s| s.as_str()));
+            targets.extend(repo_targs.iter().map(String::as_str));
 
             let mut args = config.pacman_globals();
             args.op("sync");
@@ -390,7 +390,7 @@ impl Installer {
             }
 
             debug!("flushing install queue");
-            args.targets = self.install_queue.iter().map(|s| s.as_str()).collect();
+            args.targets = self.install_queue.iter().map(String::as_str).collect();
             exec::pacman(config, &args)?.success()?;
 
             if config.devel {
@@ -412,7 +412,7 @@ impl Installer {
         if !self.remove_make.is_empty() {
             let mut args = config.pacman_globals();
             args.op("remove").arg("noconfirm");
-            args.targets = self.remove_make.iter().map(|s| s.as_str()).collect();
+            args.targets = self.remove_make.iter().map(String::as_str).collect();
 
             if let Err(err) = exec::pacman(config, &args) {
                 print_error(config.color.error, err);
@@ -434,7 +434,7 @@ impl Installer {
             let failed = self
                 .failed
                 .iter()
-                .map(|f| f.to_string())
+                .map(ToString::to_string)
                 .collect::<Vec<_>>();
             bail!(tr!("packages failed to build: {}", failed.join("  ")));
         }
@@ -451,7 +451,7 @@ impl Installer {
         config: &Config,
         base: &mut Base,
         pkgdest: &HashMap<String, String>,
-    ) -> Result<HashMap<String, String>> {
+    ) -> HashMap<String, String> {
         let mut debug_paths = HashMap::new();
 
         if config.install_debug {
@@ -512,7 +512,7 @@ impl Installer {
             }
         }
 
-        Ok(debug_paths)
+        debug_paths
     }
 
     // TODO: sort out args
@@ -530,11 +530,11 @@ impl Installer {
 
         if config.chroot {
             let mut extra = Vec::new();
-            if config.repos == LocalRepos::None {
-                extra.extend(self.built.iter().map(|s| s.as_str()));
+            if config.repos.is_none() {
+                extra.extend(self.built.iter().map(String::as_str));
             }
             let mut chroot_flags: Vec<&str> =
-                config.chroot_flags.iter().map(|s| s.as_str()).collect();
+                config.chroot_flags.iter().map(String::as_str).collect();
             chroot_flags.push("-cu");
             self.chroot
                 .build(dir, &extra, &chroot_flags, &["-ofA"], &config.env)
@@ -542,7 +542,7 @@ impl Installer {
 
             if !self.chroot.extra_pkgs.is_empty() {
                 let mut pkgs = vec!["pacman", "-S", "--asdeps", "--needed", "--noconfirm", "--"];
-                pkgs.extend(self.chroot.extra_pkgs.iter().map(|s| s.as_str()));
+                pkgs.extend(self.chroot.extra_pkgs.iter().map(String::as_str));
                 self.chroot.run_usr(&pkgs)?;
             }
         } else {
@@ -577,8 +577,8 @@ impl Installer {
             // actual build
             if config.chroot {
                 let mut extra = Vec::new();
-                if config.repos == LocalRepos::None {
-                    extra.extend(self.built.iter().map(|s| s.as_str()));
+                if config.repos.is_none() {
+                    extra.extend(self.built.iter().map(String::as_str));
                 }
                 self.chroot
                     .build(
@@ -610,7 +610,7 @@ impl Installer {
             )
         }
 
-        let debug_paths = self.debug_paths(config, base, &pkgdests)?;
+        let debug_paths = self.debug_paths(config, base, &pkgdests);
 
         self.add_pkg(config, base, repo, &pkgdests, &debug_paths)?;
         self.queue_install(base, &pkgdests, &debug_paths);
@@ -649,7 +649,7 @@ impl Installer {
             .packages()
             .filter_map(|p| pkgdest.get(p))
             .chain(debug_paths.values())
-            .map(|s| s.as_str())
+            .map(String::as_str)
             .collect::<Vec<_>>();
         sign_pkg(config, &paths, false)?;
 
@@ -716,7 +716,7 @@ impl Installer {
         let mut missing = if config.args.count("d", "nodeps") > 1 {
             Vec::new()
         } else if config.chroot {
-            if config.repos == LocalRepos::None {
+            if config.repos.is_none() {
                 // todo
                 Vec::new()
             } else {
@@ -771,7 +771,7 @@ impl Installer {
         } else {
             printtr!("{}: parsing pkg list...", base);
             let (pkgdests, version) = parse_package_list(config, &dir, pkgdest)?;
-            let debug_paths = self.debug_paths(config, base, &pkgdests)?;
+            let debug_paths = self.debug_paths(config, base, &pkgdests);
             self.add_pkg(config, base, repo, &pkgdests, &debug_paths)?;
             self.queue_install(base, &pkgdests, &debug_paths);
             (pkgdests, version)
@@ -864,7 +864,7 @@ impl Installer {
             let err = self.build_install_pkgbuild(config, base, repo_server);
 
             match err {
-                Ok(_) => {
+                Ok(()) => {
                     self.failed.pop().unwrap();
                 }
                 Err(e) => {
@@ -890,7 +890,7 @@ impl Installer {
 
         config.set_op_args_globals(Op::Sync);
         config.targets = targets_str.to_vec();
-        config.args.targets = config.targets.clone();
+        config.args.targets.clone_from(&config.targets);
 
         let targets = args::parse_targets(targets_str);
         let (mut repo_targets, aur_targets) = split_repo_aur_targets(config, &targets)?;
@@ -910,7 +910,7 @@ impl Installer {
                     || !repo_targets.is_empty()
                     || config.mode == Mode::REPO)
             {
-                let targets = repo_targets.iter().map(|t| t.to_string()).collect();
+                let targets = repo_targets.iter().map(ToString::to_string).collect();
                 repo_targets.clear();
                 self.done_something = true;
                 self.ran_pacman = true;
@@ -976,8 +976,8 @@ impl Installer {
         if self.shoud_just_pacman(config.mode, aur_targets, &self.upgrades, self.ran_pacman) {
             print_warnings(config, &cache, None);
             let mut args = config.pacman_args();
-            let targets = targets.iter().map(|t| t.to_string()).collect::<Vec<_>>();
-            args.targets = targets.iter().map(|s| s.as_str()).collect();
+            let targets = targets.iter().map(ToString::to_string).collect::<Vec<_>>();
+            args.targets = targets.iter().map(String::as_str).collect();
 
             if !args.targets.is_empty()
                 || args.has_arg("u", "sysupgrade")
@@ -1013,7 +1013,7 @@ impl Installer {
             .map(|p| p.pkg.name().to_string())
             .collect::<Vec<_>>();
 
-        self.prepare_build(config, &cache, &mut actions).await?;
+        self.prepare_build(config, &cache, &mut actions)?;
 
         let mut build = actions.build;
 
@@ -1024,11 +1024,11 @@ impl Installer {
         }
 
         if err.is_ok() && config.chroot {
-            if config.repos == LocalRepos::None {
+            if config.repos.is_some() {
+                err = self.chroot_install(config, &build, &repo_targs);
+            } else {
                 err = self.chroot_install(config, &[], &repo_targs);
                 self.do_install(config)?;
-            } else {
-                err = self.chroot_install(config, &build, &repo_targs);
             }
         }
 
@@ -1055,7 +1055,7 @@ impl Installer {
         aur_targets.is_empty() && upgrades.aur_keep.is_empty() && upgrades.pkgbuild_keep.is_empty()
     }
 
-    async fn prepare_build(
+    fn prepare_build(
         &mut self,
         config: &Config,
         cache: &Cache,
@@ -1093,7 +1093,7 @@ impl Installer {
         }
 
         let has_make = if !config.chroot
-            && (actions.build.iter().any(|p| p.make()) || actions.install.iter().any(|p| p.make))
+            && (actions.build.iter().any(Base::make) || actions.install.iter().any(|p| p.make))
         {
             if config.remove_make == YesNoAsk::Ask {
                 ask(
@@ -1124,7 +1124,7 @@ impl Installer {
         }
 
         let bases = actions.iter_aur_pkgs().cloned().collect();
-        self.download_pkgbuilds(config, &bases).await?;
+        self.download_pkgbuilds(config, &bases)?;
 
         for pkg in &actions.build {
             match pkg {
@@ -1402,7 +1402,7 @@ fn check_actions(
             for conflict in &conflict.conflicting {
                 eprint!("{}", conflict.pkg);
                 if let Some(conflict) = &conflict.conflict {
-                    eprint!(" ({})", conflict);
+                    eprint!(" ({conflict})");
                 }
                 eprint!("  ");
             }
@@ -1424,7 +1424,7 @@ fn check_actions(
             for conflict in &conflict.conflicting {
                 eprint!("{}", conflict.pkg);
                 if let Some(conflict) = &conflict.conflict {
-                    eprint!(" ({})", conflict);
+                    eprint!(" ({conflict})");
                 }
                 eprint!("  ");
             }
@@ -1478,7 +1478,7 @@ fn repo_install(
     if !install.iter().any(|pkg| conflicts.contains(pkg.pkg.name())) {
         args.arg("noconfirm");
     }
-    args.targets = targets.iter().map(|s| s.as_str()).collect();
+    args.targets = targets.iter().map(String::as_str).collect();
 
     if !config.combined_upgrade || !config.mode.repo() {
         args.remove("u").remove("sysupgrade");
@@ -1521,7 +1521,7 @@ fn set_install_reason<S: AsRef<str>>(config: &Config, reason: &str, pkgs: &[S]) 
 
     let pkgs = pkgs
         .iter()
-        .map(|s| s.as_ref())
+        .map(AsRef::as_ref)
         .filter(|p| db.pkg(*p).is_ok());
 
     let mut args = config.pacman_globals();
@@ -1662,25 +1662,22 @@ fn print_dir(
                 buf.clear();
                 pkgfile.read_to_end(buf)?;
 
-                match std::str::from_utf8(buf) {
-                    Ok(_) => {
-                        for line in buf.lines() {
-                            let _ = stdin.write_all(b"    ");
-                            let _ = stdin.write_all(line?.as_bytes());
-                            let _ = stdin.write_all(b"\n");
-                        }
+                if std::str::from_utf8(buf).is_ok() {
+                    for line in buf.lines() {
+                        let _ = stdin.write_all(b"    ");
+                        let _ = stdin.write_all(line?.as_bytes());
+                        let _ = stdin.write_all(b"\n");
                     }
-                    Err(_) => {
-                        let file = file.path();
-                        let file = file.strip_prefix(pkgdir)?;
-                        let _ = write!(
-                            stdin,
-                            "  {}",
-                            c.bold
-                                .paint(tr!("binary file: {}", file.display().to_string()))
-                        );
-                    }
-                };
+                } else {
+                    let file = file.path();
+                    let file = file.strip_prefix(pkgdir)?;
+                    let _ = write!(
+                        stdin,
+                        "  {}",
+                        c.bold
+                            .paint(tr!("binary file: {}", file.display().to_string()))
+                    );
+                }
             }
             let _ = stdin.write_all(b"\n");
         }
@@ -1894,20 +1891,20 @@ fn deps_not_satisfied<'a>(config: &'a Config, base: &'a Base) -> Result<Vec<&'a 
                 check_deps_local(
                     &alpm,
                     &mut missing,
-                    pkg.pkg.depends.iter().map(|s| s.as_str()),
+                    pkg.pkg.depends.iter().map(String::as_str),
                     nover,
                 );
                 check_deps_local(
                     &alpm,
                     &mut missing,
-                    pkg.pkg.make_depends.iter().map(|s| s.as_str()),
+                    pkg.pkg.make_depends.iter().map(String::as_str),
                     nover,
                 );
                 if !config.no_check {
                     check_deps_local(
                         &alpm,
                         &mut missing,
-                        pkg.pkg.check_depends.iter().map(|s| s.as_str()),
+                        pkg.pkg.check_depends.iter().map(String::as_str),
                         nover,
                     );
                 }
@@ -1972,20 +1969,20 @@ fn deps_not_satisfied_by_repo<'a>(config: &'a Config, base: &'a Base) -> Result<
                 check_deps_sync(
                     &alpm,
                     &mut missing,
-                    pkg.pkg.depends.iter().map(|s| s.as_str()),
+                    pkg.pkg.depends.iter().map(String::as_str),
                     nover,
                 );
                 check_deps_sync(
                     &alpm,
                     &mut missing,
-                    pkg.pkg.make_depends.iter().map(|s| s.as_str()),
+                    pkg.pkg.make_depends.iter().map(String::as_str),
                     nover,
                 );
                 if !config.no_check {
                     check_deps_sync(
                         &alpm,
                         &mut missing,
-                        pkg.pkg.check_depends.iter().map(|s| s.as_str()),
+                        pkg.pkg.check_depends.iter().map(String::as_str),
                         nover,
                     );
                 }
@@ -2089,7 +2086,7 @@ fn needs_build(
         let mut all_installed = true;
         let c = config.color;
 
-        if config.repos != LocalRepos::None {
+        if config.repos.is_some() {
             let (_, repos) = repo::repo_aur_dbs(config);
 
             if !base
@@ -2143,7 +2140,7 @@ fn sign_pkg(config: &Config, paths: &[&str], delete_sig: bool) -> Result<()> {
                 cmd.arg("-u").arg(k);
             }
 
-            let sig = format!("{}.sig", path);
+            let sig = format!("{path}.sig");
             if Path::new(&sig).exists() {
                 if delete_sig {
                     std::fs::remove_file(&sig)?;

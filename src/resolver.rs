@@ -1,4 +1,4 @@
-use crate::config::{Alpm, Config, LocalRepos, YesNoAll, YesNoAllTree};
+use crate::config::{Alpm, Config, YesNoAll, YesNoAllTree};
 use crate::fmt::color_repo;
 use crate::util::{get_provider, NumberMenu};
 use crate::RaurHandle;
@@ -50,7 +50,7 @@ pub fn flags(config: &mut Config) -> aur_depends::Flags {
     if config.interactive {
         flags.remove(Flags::TARGET_PROVIDES);
     }
-    if config.repos != LocalRepos::None || config.rebuild == YesNoAllTree::Tree || config.chroot {
+    if config.repos.is_some() || config.rebuild == YesNoAllTree::Tree || config.chroot {
         flags |= Flags::RESOLVE_SATISFIED_PKGBUILDS;
     }
 
@@ -121,7 +121,7 @@ pub fn resolver<'a, 'b>(
             let mut n = 1;
 
             for pkg in groups.iter().flat_map(|g| g.group.packages()) {
-                if menu.contains(n, "") {
+                if menu.contains(n, None) {
                     pkgs.push(pkg);
                 }
                 n += 1;

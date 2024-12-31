@@ -87,7 +87,7 @@ pub struct Warnings<'a> {
     pub orphans: Vec<&'a str>,
 }
 
-impl<'a> Warnings<'a> {
+impl Warnings<'_> {
     pub fn missing(&self, color: Colors, cols: Option<usize>) -> &Self {
         if !self.missing.is_empty() {
             let b = color.bold;
@@ -177,7 +177,7 @@ pub async fn getpkgbuilds(config: &mut Config) -> Result<i32> {
     let pkgs = config
         .targets
         .iter()
-        .map(|t| t.as_str())
+        .map(String::as_str)
         .collect::<Vec<_>>();
 
     let (repo, aur) = split_repo_aur_pkgbuilds(config, &pkgs);
@@ -214,7 +214,7 @@ pub async fn getpkgbuilds(config: &mut Config) -> Result<i32> {
 
             config.fetch.clone_dir = std::env::current_dir()?;
 
-            aur_pkgbuilds(config, &bases).await?;
+            aur_pkgbuilds(config, &bases)?;
         }
     }
     Ok(ret)
@@ -261,11 +261,11 @@ pub fn print_download(_config: &Config, n: usize, total: usize, pkg: &str) {
     );
 }
 
-async fn aur_pkgbuilds(config: &Config, bases: &Bases) -> Result<()> {
+fn aur_pkgbuilds(config: &Config, bases: &Bases) -> Result<()> {
     let download = bases
         .bases
         .iter()
-        .map(|p| p.package_base())
+        .map(AurBase::package_base)
         .collect::<Vec<_>>();
 
     let cols = config.cols.unwrap_or(0);
@@ -325,7 +325,7 @@ async fn aur_pkgbuilds(config: &Config, bases: &Bases) -> Result<()> {
     Ok(())
 }
 
-pub async fn new_aur_pkgbuilds(
+pub fn new_aur_pkgbuilds(
     config: &Config,
     bases: &Bases,
     srcinfos: &HashMap<String, Srcinfo>,
@@ -339,11 +339,11 @@ pub async fn new_aur_pkgbuilds(
     let all_pkgs = bases
         .bases
         .iter()
-        .map(|b| b.package_base())
+        .map(AurBase::package_base)
         .collect::<Vec<_>>();
 
     if config.redownload == YesNoAll::All {
-        aur_pkgbuilds(config, bases).await?;
+        aur_pkgbuilds(config, bases)?;
         config.fetch.merge(&all_pkgs)?;
         return Ok(());
     }
@@ -364,7 +364,7 @@ pub async fn new_aur_pkgbuilds(
     }
 
     let new_bases = Bases { bases: pkgs };
-    aur_pkgbuilds(config, &new_bases).await?;
+    aur_pkgbuilds(config, &new_bases)?;
     config.fetch.merge(&all_pkgs)?;
 
     Ok(())
@@ -399,9 +399,9 @@ pub async fn show_comments(config: &mut Config) -> Result<i32> {
             .get(url.clone())
             .send()
             .await
-            .with_context(|| format!("{}: {}", base, url))?;
+            .with_context(|| format!("{base}: {url}"))?;
         if !response.status().is_success() {
-            bail!("{}: {}: {}", base, url, response.status());
+            bail!("{base}: {url}: {}", response.status());
         }
 
         let document = scraper::Html::parse_document(&response.text().await?);
@@ -417,30 +417,21 @@ pub async fn show_comments(config: &mut Config) -> Result<i32> {
             .select(&comments_selector)
             .map(|node| node.text().collect::<String>());
 
-        let iter = titles.zip(comments).collect::<Vec<_>>();
-
-        if config.sort_mode == SortMode::TopDown {
-            for (title, comment) in iter.into_iter() {
-                print_indent(c.bold, 0, 0, config.cols, " ", title.split_whitespace());
-
-                for line in comment.trim().split('\n') {
-                    let line = line.split_whitespace();
-                    print!("    ");
-                    print_indent(Style::new(), 4, 4, config.cols, " ", line);
-                }
-                println!();
-            }
+        let iter: Box<dyn Iterator<Item = _>> = if config.sort_mode == SortMode::TopDown {
+            Box::new(titles.zip(comments))
         } else {
-            for (title, comment) in iter.into_iter().rev() {
-                print_indent(c.bold, 0, 0, config.cols, " ", title.split_whitespace());
+            Box::new(titles.rev().zip(comments.rev()))
+        };
 
-                for line in comment.trim().split('\n') {
-                    let line = line.split_whitespace();
-                    print!("    ");
-                    print_indent(Style::new(), 4, 4, config.cols, " ", line);
-                }
-                println!();
+        for (title, comment) in iter {
+            print_indent(c.bold, 0, 0, config.cols, " ", title.split_whitespace());
+
+            for line in comment.lines() {
+                let line = line.split_whitespace();
+                print!("    ");
+                print_indent(Style::new(), 4, 4, config.cols, " ", line);
             }
+            println!();
         }
     }
 
@@ -519,17 +510,16 @@ pub async fn show_pkgbuilds(config: &mut Config) -> Result<i32> {
             let pkg = pkg.base().unwrap_or_else(|| pkg.name());
 
             let url = Url::parse(&format!(
-                "https://gitlab.archlinux.org/archlinux/packaging/packages/{}/-/raw/HEAD/PKGBUILD",
-                pkg
+                "https://gitlab.archlinux.org/archlinux/packaging/packages/{pkg}/-/raw/HEAD/PKGBUILD",
             ))?;
 
             let response = client
                 .get(url.clone())
                 .send()
                 .await
-                .with_context(|| format!("{}: {}", pkg, url))?;
+                .with_context(|| format!("{pkg}: {url}"))?;
             if !response.status().is_success() {
-                bail!("{}: {}: {}", pkg, url, response.status());
+                bail!("{pkg}: {url}: {}", response.status());
             }
 
             if bat {
@@ -566,9 +556,9 @@ pub async fn show_pkgbuilds(config: &mut Config) -> Result<i32> {
                 .get(url.clone())
                 .send()
                 .await
-                .with_context(|| format!("{}: {}", base, url))?;
+                .with_context(|| format!("{base}: {url}"))?;
             if !response.status().is_success() {
-                bail!("{}: {}: {}", base, url, response.status());
+                bail!("{base}: {url}: {}", response.status());
             }
 
             if bat {

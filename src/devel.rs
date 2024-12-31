@@ -1,4 +1,4 @@
-use crate::config::{Config, LocalRepos};
+use crate::config::Config;
 use crate::download::{self, cache_info_with_warnings, Bases};
 use crate::print_error;
 use crate::repo;
@@ -31,7 +31,7 @@ pub struct _PkgInfo {
     pub repos: HashSet<RepoInfo>,
 }
 
-#[derive(Serialize, Deserialize, SmartDefault, Debug, Eq, Clone)]
+#[derive(Serialize, Deserialize, Default, Debug, Eq, Clone)]
 pub struct RepoInfo {
     pub url: String,
     pub branch: Option<String>,
@@ -168,7 +168,7 @@ pub async fn gendb(config: &mut Config) -> Result<()> {
         }
     }
 
-    download::new_aur_pkgbuilds(config, &bases, &srcinfos).await?;
+    download::new_aur_pkgbuilds(config, &bases, &srcinfos)?;
 
     for base in &bases.bases {
         if failed.contains(base.package_base()) || srcinfos.contains_key(base.package_base()) {
@@ -322,7 +322,7 @@ fn parse_url(source: &str) -> Option<(String, &'_ str, Option<&'_ str>)> {
     let mut split = rest.splitn(2, '#');
     let remote = split.next().unwrap();
     let remote = remote.split_once('?').map_or(remote, |(x, _)| x);
-    let remote = format!("{}://{}", protocol, remote);
+    let remote = format!("{protocol}://{remote}");
 
     let branch = if let Some(fragment) = split.next() {
         let fragment = fragment.split_once('?').map_or(fragment, |(x, _)| x);
@@ -347,7 +347,7 @@ pub async fn possible_devel_updates(config: &Config) -> Result<Vec<String>> {
     let mut futures = Vec::new();
     let mut pkgbases: HashMap<&str, Vec<&alpm::Package>> = HashMap::new();
 
-    for pkg in db.pkgs().iter() {
+    for pkg in db.pkgs() {
         let name = pkg_base_or_name(pkg);
         pkgbases.entry(name).or_default().push(pkg);
     }
@@ -363,7 +363,7 @@ pub async fn possible_devel_updates(config: &Config) -> Result<Vec<String>> {
             }
         }
 
-        if config.repos != LocalRepos::None {
+        if config.repos.is_some() {
             let (_, dbs) = repo::repo_aur_dbs(config);
             for db in dbs {
                 if db.pkg(pkg.as_str()).is_ok() {
@@ -381,7 +381,7 @@ pub async fn possible_devel_updates(config: &Config) -> Result<Vec<String>> {
     let mut updates = updates
         .into_iter()
         .flatten()
-        .map(|s| s.to_string())
+        .map(ToString::to_string)
         .collect::<Vec<_>>();
 
     updates.sort_unstable();
@@ -415,7 +415,7 @@ pub async fn filter_devel_updates(
         pkgbases.entry(name).or_default().push(pkg);
     }
 
-    for pkg in db.pkgs().iter() {
+    for pkg in db.pkgs() {
         let name = pkg_base_or_name(pkg);
         pkgbases.entry(name).or_default().push(pkg);
     }
@@ -506,10 +506,7 @@ pub async fn fetch_devel_info(
             Base::Pkgbuild(c) => Some(c.srcinfo.as_ref()),
         };
 
-        let srcinfo = match srcinfo {
-            Some(v) => v,
-            None => continue,
-        };
+        let Some(srcinfo) = srcinfo else { continue };
 
         for url in srcinfo.base.source.iter().flat_map(|v| &v.vec) {
             if let Some((remote, _, branch)) = parse_url(url) {
@@ -536,7 +533,7 @@ pub async fn fetch_devel_info(
             Ok(commit) => {
                 let url_info = RepoInfo {
                     url: remote,
-                    branch: branch.map(|s| s.to_string()),
+                    branch: branch.map(ToString::to_string),
                     commit,
                 };
 
@@ -554,9 +551,8 @@ pub async fn fetch_devel_info(
 }
 
 pub fn load_devel_info(config: &Config) -> Result<Option<DevelInfo>> {
-    let file = match read_to_string(&config.devel_path) {
-        Ok(file) => file,
-        _ => return Ok(None),
+    let Ok(file) = read_to_string(&config.devel_path) else {
+        return Ok(None);
     };
     let devel_info = DevelInfo::deserialize(toml::Deserializer::new(&file))
         .with_context(|| tr!("invalid toml: {}", config.devel_path.display()))?;

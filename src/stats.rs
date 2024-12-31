@@ -20,7 +20,7 @@ struct Info<'a> {
     max_packages: Vec<(i64, &'a str)>,
 }
 
-async fn collect_info(config: &Config, max_n: usize) -> Result<Info<'_>> {
+fn collect_info(config: &Config, max_n: usize) -> Info<'_> {
     let db = config.alpm.localdb();
     let total_packages = db.pkgs().len();
 
@@ -45,12 +45,12 @@ async fn collect_info(config: &Config, max_n: usize) -> Result<Info<'_>> {
         .map(|r| r.0)
         .collect();
 
-    Ok(Info {
+    Info {
         total_packages,
         explicit_packages,
         total_size,
         max_packages,
-    })
+    }
 }
 
 fn print_line_separator(config: &Config) {
@@ -66,12 +66,11 @@ fn print_line_separator(config: &Config) {
 pub async fn stats(config: &Config) -> Result<i32> {
     let mut cache = raur::Cache::new();
     let c = config.color;
-    let info = collect_info(config, 10).await?;
+    let info = collect_info(config, 10);
     let (repo, possible_aur) = repo_aur_pkgs(config);
     let aur_packages = possible_aur
         .iter()
-        .map(|pkg| pkg.name())
-        .map(|s| s.to_owned())
+        .map(|pkg| pkg.name().to_owned())
         .collect::<Vec<_>>();
 
     let warnings = cache_info_with_warnings(

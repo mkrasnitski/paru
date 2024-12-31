@@ -168,9 +168,9 @@ async fn search_aur_regex(config: &Config, targets: &[String]) -> Result<Vec<rau
     let url = config.aur_url.join("packages.gz")?;
     let resp = get(url.clone())
         .await
-        .with_context(|| format!("get {}", url))?;
+        .with_context(|| format!("get {url}"))?;
     let success = resp.status().is_success();
-    ensure!(success, "get {}: {}", url, resp.status());
+    ensure!(success, "get {url}: {}", resp.status());
 
     let data = resp.text().await?;
 
@@ -195,7 +195,7 @@ async fn search_aur(config: &Config, targets: &[String]) -> Result<Vec<raur::Pac
         search_aur_regex(config, targets).await?
     } else {
         let mut targets = targets.iter().map(|t| t.to_lowercase()).collect::<Vec<_>>();
-        targets.sort_by_key(|t| t.len());
+        targets.sort_by_key(String::len);
 
         let mut matches = Vec::new();
 
@@ -239,7 +239,7 @@ async fn search_aur(config: &Config, targets: &[String]) -> Result<Vec<raur::Pac
         SortBy::Base => matches.sort_by(|a, b| a.package_base.cmp(&b.package_base)),
         SortBy::Submitted => matches.sort_by_key(|p| p.first_submitted),
         SortBy::Modified => matches.sort_by_key(|p| p.last_modified),
-        _ => (),
+        SortBy::BaseId => (),
     }
 
     if config.limit != 0 {
@@ -405,11 +405,11 @@ pub fn interactive_search_local(config: &mut Config) -> Result<()> {
     }
 
     let was_results = all_pkgs.is_empty();
-    let targs = interactive_menu(config, all_pkgs, false)?;
+    let targs = interactive_menu(config, all_pkgs, false);
     if targs.is_empty() && !was_results {
         printtr!(" there is nothing to do");
     }
-    config.targets = targs.clone();
+    config.targets.clone_from(&targs);
     config.args.targets = targs;
     Ok(())
 }
@@ -431,11 +431,11 @@ pub async fn interactive_search(config: &mut Config, install: bool) -> Result<()
     }
 
     let was_results = all_pkgs.is_empty();
-    let targs = interactive_menu(config, all_pkgs, install)?;
+    let targs = interactive_menu(config, all_pkgs, install);
     if targs.is_empty() && !was_results {
         printtr!(" there is nothing to do");
     }
-    config.targets = targs.clone();
+    config.targets.clone_from(&targs);
     config.args.targets = targs;
     Ok(())
 }
@@ -444,12 +444,12 @@ pub fn interactive_menu(
     config: &Config,
     mut all_pkgs: Vec<AnyPkg<'_>>,
     install: bool,
-) -> Result<Vec<String>> {
+) -> Vec<String> {
     let pad = all_pkgs.len().to_string().len();
 
     if all_pkgs.is_empty() {
         printtr!("no packages match search");
-        return Ok(Vec::new());
+        return Vec::new();
     }
 
     let indexes = all_pkgs
@@ -492,7 +492,7 @@ pub fn interactive_menu(
     };
 
     if input.trim().is_empty() {
-        return Ok(Vec::new());
+        return Vec::new();
     }
 
     let menu = NumberMenu::new(&input);
@@ -500,7 +500,7 @@ pub fn interactive_menu(
 
     if config.sort_mode == SortMode::TopDown {
         for (n, pkg) in all_pkgs.iter().enumerate() {
-            if menu.contains(n + 1, "") {
+            if menu.contains(n + 1, None) {
                 match pkg {
                     AnyPkg::RepoPkg(pkg) => {
                         pkgs.push(format!("{}/{}", pkg.db().unwrap().name(), pkg.name()))
@@ -514,7 +514,7 @@ pub fn interactive_menu(
         }
     } else {
         for (n, pkg) in all_pkgs.iter().enumerate().rev() {
-            if menu.contains(n + 1, "") {
+            if menu.contains(n + 1, None) {
                 match pkg {
                     AnyPkg::RepoPkg(pkg) => {
                         pkgs.push(format!("{}/{}", pkg.db().unwrap().name(), pkg.name()))
@@ -528,7 +528,7 @@ pub fn interactive_menu(
         }
     }
 
-    Ok(pkgs)
+    pkgs
 }
 
 fn print_any_pkg(config: &Config, n: usize, pad: usize, pkg: &AnyPkg) {

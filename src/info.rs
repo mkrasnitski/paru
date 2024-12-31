@@ -19,7 +19,7 @@ pub async fn info(conf: &mut Config, verbose: bool) -> Result<i32, Error> {
     let targets = conf.targets.clone();
     let targets = targets.iter().map(Targ::from).collect::<Vec<_>>();
 
-    let (repo, aur) = split_repo_aur_info(conf, &targets)?;
+    let (repo, aur) = split_repo_aur_info(conf, &targets);
     let mut ret = 0;
 
     let longest = longest(conf) + 3;
@@ -65,7 +65,7 @@ pub async fn info(conf: &mut Config, verbose: bool) -> Result<i32, Error> {
         let targets = repo.into_iter().map(|t| t.to_string()).collect::<Vec<_>>();
         let mut args = conf.pacman_args();
         args.targets.clear();
-        args.targets(targets.iter().map(|t| t.as_str()));
+        args.targets(targets.iter().map(String::as_str));
         ret |= exec::pacman(conf, &args)?.code();
     }
 
@@ -74,7 +74,7 @@ pub async fn info(conf: &mut Config, verbose: bool) -> Result<i32, Error> {
     }
 
     if !pkgbuild.is_empty() {
-        print_pkgbuild_info(conf, verbose, &pkgbuild, longest)?;
+        print_pkgbuild_info(conf, verbose, &pkgbuild, longest);
     }
 
     Ok(ret)
@@ -143,12 +143,7 @@ fn arch_len(vec: &[ArchVec]) -> usize {
         .unwrap_or(0)
 }
 
-pub fn print_pkgbuild_info(
-    conf: &Config,
-    _verbose: bool,
-    pkgs: &[Targ],
-    len: usize,
-) -> Result<(), Error> {
+pub fn print_pkgbuild_info(conf: &Config, _verbose: bool, pkgs: &[Targ], len: usize) {
     let color = conf.color;
     let cols = get_terminal_width();
     let print = |k: &str, v: &str| print(color, len, cols, k, v);
@@ -158,7 +153,7 @@ pub fn print_pkgbuild_info(
             print_list(k, &[]);
         }
         v.iter().for_each(|v| match &v.arch {
-            Some(arch) => print_list(format!("{} {}", k, arch).as_str(), &v.vec),
+            Some(arch) => print_list(&format!("{k} {arch}"), &v.vec),
             None => print_list(k, &v.vec),
         })
     };
@@ -171,16 +166,13 @@ pub fn print_pkgbuild_info(
             conf.pkgbuild_repos.pkg(conf, targ.pkg)
         };
 
-        let (base, pkg) = match pkg {
-            Some(pkg) => pkg,
-            None => {
-                eprintln!(
-                    "{} {}",
-                    color.error.paint("error:"),
-                    tr!("package '{}' was not found", targ.pkg),
-                );
-                continue;
-            }
+        let Some((base, pkg)) = pkg else {
+            eprintln!(
+                "{} {}",
+                color.error.paint("error:"),
+                tr!("package '{}' was not found", targ.pkg),
+            );
+            continue;
         };
 
         let path = base.path.as_path();
@@ -204,8 +196,6 @@ pub fn print_pkgbuild_info(
 
         println!();
     }
-
-    Ok(())
 }
 
 pub fn print_aur_info(
@@ -274,7 +264,7 @@ fn print_list(color: Colors, indent: usize, cols: Option<usize>, k: &str, v: &[S
     if v.is_empty() {
         print(color, indent, cols, k, &tr!("None"));
     } else {
-        print_info(color, true, indent, cols, k, v.iter().map(|s| s.as_str()));
+        print_info(color, true, indent, cols, k, v.iter().map(String::as_str));
     }
 }
 

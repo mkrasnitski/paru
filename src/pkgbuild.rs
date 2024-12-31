@@ -44,7 +44,7 @@ impl RepoSource {
         match self {
             RepoSource::Url(url, _) => *url = u,
             RepoSource::Path(path) => *self = RepoSource::Url(u, Some(path.clone())),
-            _ => *self = RepoSource::Url(u, None),
+            RepoSource::None => *self = RepoSource::Url(u, None),
         }
     }
 }
@@ -117,7 +117,7 @@ impl PkgbuildRepo {
             skip_review: true,
             force_srcinfo: false,
             path: dir,
-            pkgs: Default::default(),
+            pkgs: OnceCell::default(),
         };
 
         repo.pkgs(config);
@@ -162,7 +162,7 @@ impl PkgbuildRepo {
     }
 
     fn generate_srcinfos(&self, config: &Config) {
-        self.for_each_pkgbuild((), |path, _| {
+        self.for_each_pkgbuild((), |path, ()| {
             if let Err(e) = self.generate_srcinfo(config, path) {
                 print_error(config.color.error, e);
             }
@@ -246,10 +246,7 @@ impl PkgbuildRepo {
         let dir = read_dir(path).context(path.display().to_string())?;
 
         for entry in dir {
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(_) => return Ok(()),
-            };
+            let Ok(entry) = entry else { return Ok(()) };
 
             if entry.file_type()?.is_dir() {
                 Self::try_for_each_pkgbuild_internal(data, f, &entry.path(), depth - 1)?;
@@ -387,8 +384,7 @@ impl PkgbuildRepos {
                 !config
                     .pkgbuild_repos
                     .repo(&r.name)
-                    .map(|r| r.skip_review)
-                    .unwrap_or(false)
+                    .is_some_and(|r| r.skip_review)
             })
             .map(|r| r.name.as_str())
             .collect::<Vec<_>>();

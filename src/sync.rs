@@ -14,7 +14,7 @@ pub async fn filter(config: &Config) -> Result<i32> {
     config.raur.cache_info(&mut cache, &config.targets).await?;
 
     for targ in config.targets.iter().filter(|t| cache.contains(t.as_str())) {
-        println!("{}", targ);
+        println!("{targ}");
     }
 
     if cache.len() == config.targets.len() {
@@ -100,9 +100,9 @@ pub async fn list_aur(config: &Config) -> Result<()> {
         .get(url.clone())
         .send()
         .await
-        .with_context(|| format!("get {}", url))?;
+        .with_context(|| format!("get {url}"))?;
     let success = resp.status().is_success();
-    ensure!(success, "get {}: {}", url, resp.status());
+    ensure!(success, "get {url}: {}", resp.status());
 
     let data = resp.bytes().await?;
 

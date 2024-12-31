@@ -52,10 +52,8 @@ impl Alpm {
     }
 }
 
-#[derive(Debug, SmartDefault, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LocalRepos {
-    #[default]
-    None,
     Default,
     Repo(Vec<String>),
 }
@@ -63,7 +61,7 @@ pub enum LocalRepos {
 impl LocalRepos {
     pub fn new(repo: Option<&str>) -> Self {
         match repo {
-            Some(s) => LocalRepos::Repo(s.split_whitespace().map(|s| s.to_string()).collect()),
+            Some(s) => LocalRepos::Repo(s.split_whitespace().map(ToString::to_string).collect()),
             None => LocalRepos::Default,
         }
     }
@@ -187,7 +185,7 @@ pub trait ConfigEnum: Sized + PartialEq + Copy + Clone + fmt::Debug + 'static {
 
 type ConfigEnumValues<T> = &'static [(&'static str, T)];
 
-#[derive(Debug, SmartDefault, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub enum Sign {
     #[default]
     No,
@@ -511,7 +509,7 @@ pub struct Config {
     pub makepkg_conf: Option<String>,
     pub pacman_conf: Option<String>,
 
-    pub repos: LocalRepos,
+    pub repos: Option<LocalRepos>,
     #[default(Path::new("/var/lib/aurbuild/").join(ARCH))]
     pub chroot_dir: PathBuf,
     pub chroot: bool,
@@ -671,7 +669,7 @@ impl Config {
         }
 
         while let Some(arg) = iter.next() {
-            let value = iter.peek().map(|s| s.as_ref());
+            let value = iter.peek().map(AsRef::as_ref);
             let arg = arg.as_ref();
             if self.parse_arg(arg, value, &mut op_count, &mut end_of_ops)? {
                 iter.next();
@@ -728,7 +726,7 @@ impl Config {
             let ver = option_env!("PARU_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
             let client = reqwest::Client::builder()
                 .tcp_keepalive(Duration::new(15, 0))
-                .user_agent(format!("paru/{}", ver))
+                .user_agent(format!("paru/{ver}"))
                 .build()?;
 
             let rpc_url = match &self.aur_rpc_url {
@@ -786,7 +784,7 @@ impl Config {
 
         self.need_root = self.need_root();
 
-        if let LocalRepos::Repo(repos) = &self.repos {
+        if let Some(LocalRepos::Repo(repos)) = &self.repos {
             let (_, db) = repo::repo_aur_dbs(self);
             for repo in repos {
                 if !db.iter().any(|db| db.name() == repo) {
@@ -795,7 +793,7 @@ impl Config {
             }
         }
 
-        if self.repos != LocalRepos::None {
+        if self.repos.is_some() {
             let (_, repos) = repo::repo_aur_dbs(self);
 
             if repos.is_empty() {
@@ -934,9 +932,8 @@ then initialise it with:
 
     fn parse_directive(&mut self, key: &str, value: Option<&str>) -> Result<()> {
         if key == "Include" {
-            let value = match value {
-                Some(value) => value,
-                None => bail!(tr!("value can not be empty for key '{}'", key)),
+            let Some(value) = value else {
+                bail!(tr!("value can not be empty for key '{}'", key))
             };
 
             let ini = std::fs::read_to_string(value)?;
@@ -945,7 +942,7 @@ then initialise it with:
             let section = section.as_deref();
             let section = self
                 .parse_with_section(section, Some(value), &ini)?
-                .map(|s| s.to_string());
+                .map(ToString::to_string);
             self.section = section;
             return Ok(());
         }
@@ -999,10 +996,10 @@ then initialise it with:
 
     fn parse_bin(&mut self, key: &str, value: Option<&str>) -> Result<()> {
         let value = value
-            .map(|s| s.to_string())
+            .map(ToString::to_string)
             .ok_or_else(|| anyhow!(tr!("key can not be empty")))?;
 
-        let split = value.split_whitespace().map(|s| s.to_string());
+        let split = value.split_whitespace().map(ToString::to_string);
 
         match key {
             "Makepkg" => self.makepkg_bin = value,
@@ -1046,7 +1043,7 @@ then initialise it with:
                 self.sudo_loop = value
                     .unwrap_or("-v")
                     .split_whitespace()
-                    .map(|s| s.to_string())
+                    .map(ToString::to_string)
                     .collect()
             }
             "Devel" => self.devel = true,
@@ -1064,7 +1061,7 @@ then initialise it with:
             "Rebuild" => self.rebuild = YesNoAllTree::Yes.default_or(key, value)?,
             "RemoveMake" => self.remove_make = YesNoAsk::Yes.default_or(key, value)?,
             "UpgradeMenu" => self.upgrade_menu = true,
-            "LocalRepo" => self.repos = LocalRepos::new(value),
+            "LocalRepo" => self.repos = Some(LocalRepos::new(value)),
             "Chroot" => {
                 self.chroot = true;
                 if let Some(p) = value {
@@ -1096,7 +1093,7 @@ then initialise it with:
 
         let has_value = value.is_some();
         let value = value
-            .map(|s| s.to_string())
+            .map(ToString::to_string)
             .ok_or_else(|| anyhow!(tr!("value can not be empty for key '{}'", key)));
 
         match key {
@@ -1114,11 +1111,11 @@ then initialise it with:
             "MakepkgConf" => self.makepkg_conf = Some(value?),
             "DevelSuffixes" => {
                 self.devel_suffixes
-                    .extend(value?.split_whitespace().map(|s| s.to_string()));
+                    .extend(value?.split_whitespace().map(ToString::to_string));
             }
             "IgnoreDevelSource" => {
                 self.ignore_devel_source
-                    .extend(value?.split_whitespace().map(|s| s.to_string()));
+                    .extend(value?.split_whitespace().map(ToString::to_string));
             }
             "IgnoreDevel" => {
                 for word in value?.split_whitespace() {
@@ -1164,7 +1161,7 @@ then initialise it with:
 
 pub fn version() {
     let ver = option_env!("PARU_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
-    print!("paru v{}", ver);
+    print!("paru v{ver}");
     #[cfg(feature = "git")]
     print!(" +git");
     println!(" - libalpm v{}", alpm::version());
@@ -1216,7 +1213,7 @@ fn download(filename: &str, event: AnyDownloadEvent, _: &mut ()) {
     }
 
     match event.event() {
-        DownloadEvent::Init(_) => println!("  syncing {}...", filename),
+        DownloadEvent::Init(_) => println!("  syncing {filename}..."),
         DownloadEvent::Completed(c) if c.result == DownloadResult::Failed => {
             printtr!("  failed to sync {}", filename);
         }
@@ -1229,9 +1226,9 @@ fn log(level: LogLevel, msg: &str, color: &mut Colors) {
     let warn = color.warning;
 
     match level {
-        LogLevel::WARNING => eprint!("{} {}", warn.paint("::"), msg),
-        LogLevel::ERROR => eprint!("{} {}", err.paint("error:"), msg),
-        LogLevel::DEBUG if alpm_debug_enabled() => eprint!("debug: <alpm> {}", msg),
+        LogLevel::WARNING => eprint!("{} {msg}", warn.paint("::")),
+        LogLevel::ERROR => eprint!("{} {msg}", err.paint("error:")),
+        LogLevel::DEBUG if alpm_debug_enabled() => eprint!("debug: <alpm> {msg}"),
         _ => (),
     }
 }

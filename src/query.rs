@@ -24,7 +24,7 @@ pub async fn print_upgrade_list(config: &mut Config) -> Result<i32> {
     let targets: Vec<_> = if config.targets.is_empty() {
         db.pkgs().iter().map(|p| p.name()).collect::<Vec<_>>()
     } else {
-        config.targets.iter().map(|s| s.as_str()).collect()
+        config.targets.iter().map(String::as_str).collect()
     };
 
     let (repo, aur) = split_repo_aur_pkgs(config, &targets);
@@ -99,7 +99,7 @@ pub async fn print_upgrade_list(config: &mut Config) -> Result<i32> {
                 Ok(())
             }
 
-            let (_, devel) = try_join!(aur_up(config, &mut cache, &aur), devel_up(config))?;
+            let ((), devel) = try_join!(aur_up(config, &mut cache, &aur), devel_up(config))?;
             let devel = filter_devel_updates(config, &mut cache, &devel).await?;
 
             for target in aur {
@@ -135,7 +135,7 @@ fn print_upgrade(config: &Config, name: &str, local_ver: &str, new_ver: &str) {
     let upgrade = config.color.upgrade;
 
     if config.args.has_arg("q", "quiet") {
-        println!("{}", name);
+        println!("{name}");
     } else {
         print!(
             "{} {} -> {}",

@@ -129,10 +129,9 @@ impl<S: AsRef<str>> Display for Arg<S> {
 
 impl<S: AsRef<str>> Arg<S> {
     pub fn as_str(&self) -> Arg<&str> {
-        let value = self.value.as_ref().map(|v| v.as_ref());
         Arg {
             key: self.key.as_ref(),
-            value,
+            value: self.value.as_ref().map(AsRef::as_ref),
         }
     }
 }
@@ -141,7 +140,7 @@ impl<S: AsRef<str>> Args<S> {
     pub fn args(&self) -> Vec<String> {
         let op = format!("--{}", self.op.as_ref());
         let mut args = vec![op];
-        args.extend(self.args.iter().map(|a| a.to_string()));
+        args.extend(self.args.iter().map(ToString::to_string));
         args.push("--".into());
         args.extend(self.targets.iter().map(|s| s.as_ref().to_string()));
         args
@@ -201,7 +200,7 @@ impl<S: AsRef<str>> Args<S> {
             bin: self.bin.as_ref(),
             op: self.op.as_ref(),
             args: self.args.iter().map(|s| s.as_str()).collect(),
-            targets: self.targets.iter().map(|s| s.as_ref()).collect(),
+            targets: self.targets.iter().map(AsRef::as_ref).collect(),
         }
     }
 }

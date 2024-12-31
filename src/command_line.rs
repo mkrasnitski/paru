@@ -17,16 +17,16 @@ enum Arg<'a> {
     Long(&'a str),
 }
 
-impl<'a> fmt::Display for Arg<'a> {
+impl fmt::Display for Arg<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Arg::Short(c) => write!(f, "-{}", c),
-            Arg::Long(l) => write!(f, "--{}", l),
+            Arg::Short(c) => write!(f, "-{c}"),
+            Arg::Long(l) => write!(f, "--{l}"),
         }
     }
 }
 
-impl<'a> Arg<'a> {
+impl Arg<'_> {
     fn arg(self) -> String {
         match self {
             Arg::Long(arg) => arg.to_string(),
@@ -142,18 +142,18 @@ impl Config {
         if arg.is_pacman_global() {
             self.globals.args.push(crate::args::Arg {
                 key: arg.arg(),
-                value: value.map(|s| s.to_string()),
+                value: value.map(ToString::to_string),
             });
             self.args.args.push(crate::args::Arg {
                 key: arg.arg(),
-                value: value.map(|s| s.to_string()),
+                value: value.map(ToString::to_string),
             });
         }
 
         if arg.is_pacman_arg() {
             self.args.args.push(crate::args::Arg {
                 key: arg.arg(),
-                value: value.map(|s| s.to_string()),
+                value: value.map(ToString::to_string),
             });
         }
 
@@ -165,7 +165,7 @@ impl Config {
         let value = value.with_context(|| tr!("option {} does not allow a value", arg));
         let argkey = match arg {
             Arg::Long(n) => n,
-            _ => "<impossible_key_of_short_arg>",
+            Arg::Short(_) => "<impossible_key_of_short_arg>",
         };
 
         match arg {
@@ -185,7 +185,7 @@ impl Config {
             Arg::Long("pager") => self.pager_cmd = Some(value?.to_string()),
             Arg::Long("config") => self.pacman_conf = Some(value?.to_string()),
 
-            Arg::Long("builddir") | Arg::Long("clonedir") => self.build_dir = value?.into(),
+            Arg::Long("builddir" | "clonedir") => self.build_dir = value?.into(),
             Arg::Long("develfile") => self.devel_path = value?.into(),
             Arg::Long("makepkgconf") => self.makepkg_conf = Some(value?.to_string()),
             Arg::Long("mflags") => self.mflags.extend(split_whitespace(value?)),
@@ -197,9 +197,9 @@ impl Config {
             Arg::Long("chrootflags") => self.chroot_flags.extend(split_whitespace(value?)),
             Arg::Long("chrootpkgs") => self
                 .chroot_pkgs
-                .extend(value?.split(',').map(|s| s.to_string())),
+                .extend(value?.split(',').map(ToString::to_string)),
 
-            Arg::Long("develsuffixes") => self.devel_suffixes = split_whitespace(value?),
+            Arg::Long("develsuffixes") => self.devel_suffixes = split_whitespace(value?).collect(),
             Arg::Long("installdebug") => self.install_debug = true,
             Arg::Long("noinstalldebug") => self.install_debug = false,
 
@@ -273,11 +273,7 @@ impl Config {
             Arg::Long("batchinstall") => self.batch_install = true,
             Arg::Long("nobatchinstall") => self.batch_install = false,
             Arg::Long("sudoloop") => {
-                self.sudo_loop = value
-                    .unwrap_or("-v")
-                    .split_whitespace()
-                    .map(|s| s.to_string())
-                    .collect()
+                self.sudo_loop = split_whitespace(value.unwrap_or("-v")).collect()
             }
             Arg::Long("nosudoloop") => self.sudo_loop.clear(),
             Arg::Long("clean") => self.clean += 1,
@@ -329,10 +325,12 @@ impl Config {
                     self.ask = n
                 }
             }
-            Arg::Long("ignore") => self.ignore.extend(value?.split(',').map(|s| s.to_string())),
+            Arg::Long("ignore") => self
+                .ignore
+                .extend(value?.split(',').map(ToString::to_string)),
             Arg::Long("ignoregroup") => self
                 .ignore_group
-                .extend(value?.split(',').map(|s| s.to_string())),
+                .extend(value?.split(',').map(ToString::to_string)),
             Arg::Long("ignoredevel") => {
                 for word in value?.split(',') {
                     self.ignore_devel_builder.add(Glob::new(word)?);
@@ -341,8 +339,8 @@ impl Config {
             Arg::Long("assume-installed") => self.assume_installed.push(value?.to_string()),
             Arg::Long("arch") => self.arch = Some(value?.to_string()),
             Arg::Long("color") => self.color = Colors::from(value.unwrap_or("always")),
-            Arg::Long("localrepo") => self.repos = LocalRepos::new(value.ok()),
-            Arg::Long("nolocalrepo") => self.repos = LocalRepos::None,
+            Arg::Long("localrepo") => self.repos = Some(LocalRepos::new(value.ok())),
+            Arg::Long("nolocalrepo") => self.repos = None,
             Arg::Long("chroot") => {
                 self.chroot = true;
                 if let Ok(p) = value {
@@ -384,8 +382,8 @@ impl Config {
     }
 }
 
-fn split_whitespace(s: &str) -> Vec<String> {
-    s.split_whitespace().map(|s| s.to_string()).collect()
+fn split_whitespace(s: &str) -> impl Iterator<Item = String> + '_ {
+    s.split_whitespace().map(ToString::to_string)
 }
 
 fn takes_value(arg: Arg) -> TakesValue {

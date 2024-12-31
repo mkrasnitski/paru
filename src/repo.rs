@@ -25,14 +25,14 @@ pub fn add<P: AsRef<Path>, S: AsRef<OsStr>>(
     name: &str,
     pkgs: &[S],
 ) -> Result<()> {
-    let db = path.as_ref().join(format!("{}.db", name));
+    let db = path.as_ref().join(format!("{name}.db"));
     let name = if db.exists() {
         if pkgs.is_empty() {
             return Ok(());
         }
         read_link(&db).context("readlink")?
     } else if !name.contains(".db.") {
-        PathBuf::from(format!("{}.db.tar.gz", name))
+        PathBuf::from(format!("{name}.db.tar.gz"))
     } else {
         PathBuf::from(name)
     };
@@ -102,7 +102,7 @@ pub fn remove<P: AsRef<Path>, S: AsRef<OsStr>>(
     pkgs: &[S],
 ) -> Result<()> {
     let path = path.as_ref();
-    let db = path.join(format!("{}.db", name));
+    let db = path.join(format!("{name}.db"));
     if pkgs.is_empty() || !db.exists() {
         return Ok(());
     }
@@ -133,10 +133,10 @@ pub fn init<P: AsRef<Path>>(config: &Config, path: P, name: &str) -> Result<()> 
 }
 
 fn is_configured_local_db(config: &Config, db: &Db) -> bool {
-    match config.repos {
-        LocalRepos::None => false,
-        LocalRepos::Default => is_local_db(db),
-        LocalRepos::Repo(ref r) => is_local_db(db) && r.iter().any(|r| *r == db.name()),
+    match &config.repos {
+        None => false,
+        Some(LocalRepos::Default) => is_local_db(db),
+        Some(LocalRepos::Repo(r)) => is_local_db(db) && r.iter().any(|r| r == db.name()),
     }
 }
 
@@ -212,7 +212,7 @@ pub fn delete(config: &mut Config) -> Result<(), Error> {
                         if pkgs.contains(&pkg.name()) {
                             rmfiles.push(file.path());
 
-                            let mut sig = file.path().to_path_buf().into_os_string();
+                            let mut sig = file.path().into_os_string();
                             sig.push(".sig");
                             let sig = PathBuf::from(sig);
                             if sig.exists() {
@@ -243,7 +243,7 @@ pub fn delete(config: &mut Config) -> Result<(), Error> {
             let pkgs = config
                 .targets
                 .iter()
-                .map(|p| p.as_str())
+                .map(String::as_str)
                 .filter(|p| db.pkg(*p).is_ok());
 
             let mut args = config.pacman_globals();

@@ -155,7 +155,7 @@ impl Chroot {
             if key == "PKGDEST" {
                 cmd.env(key, value);
             } else {
-                cmd.arg(format!("{}={}", key, value));
+                cmd.arg(format!("{key}={value}"));
             }
         }
 

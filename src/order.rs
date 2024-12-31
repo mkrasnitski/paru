@@ -104,7 +104,7 @@ fn print_conflicting(conflicts: Vec<Conflict>, type_str: &str) {
         for conflicting in conf.conflicting {
             print!("CONFLICT {} {} {}", type_str, conf.pkg, conflicting.pkg,);
             if let Some(conflict) = conflicting.conflict {
-                print!(" {}", conflict)
+                print!(" {conflict}")
             }
             println!();
         }
